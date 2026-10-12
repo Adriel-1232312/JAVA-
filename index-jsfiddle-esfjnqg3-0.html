@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JSFiddle esfjnqg3</title>
+
+  <style>
+    html, body { height: 100%; margin: 0; background: #14161c; overflow: hidden; font-family: system-ui, sans-serif; }
+#wrap { position: relative; width: 100%; height: 100%; }
+canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+#hint { position: absolute; left: 0; right: 0; bottom: 14px; text-align: center; color: #8b96a8; font-size: 13px; pointer-events: none; }
+  </style>
+
+  
+</head>
+<body>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<div id="wrap"><div id="hint">Drag a ball and let go</div></div>
+
+  <script>
+    const { Engine, Bodies, Body, Composite, Constraint } = Matter;
+
+// ---------- Physics (Matter.js) ----------
+const engine = Engine.create({ positionIterations: 20, velocityIterations: 20 });
+const world = engine.world;
+engine.gravity.y = 1;
+
+const ballCount = 5, radius = 25, stringLength = 220;
+const startX = 300 - ((ballCount - 1) * radius);
+const startY = 60;
+const balls = [];
+
+for (let i = 0; i < ballCount; i++) {
+  const x = startX + i * radius * 2;
+  const ball = Bodies.circle(x, startY + stringLength, radius, {
+    restitution: 1, friction: 0, frictionStatic: 0,
+    frictionAir: 0.00005, slop: 0.01, inertia: Infinity
+  });
+  const string = Constraint.create({ pointA: { x, y: startY }, bodyB: ball, stiffness: 1, length: stringLength });
+  if (i === 0) Body.setPosition(ball, { x: x - 140, y: startY + stringLength - 50 });
+  ball.anchorX = x;
+  balls.push(ball);
+  Composite.add(world, [ball, string]);
+}
+
+// ---------- 3D scene (Three.js) ----------
+const S = 0.1;
+const toX = x => (x - 300) * S;
+const toY = y => (300 - y) * S;
+
+const wrap = document.getElementById('wrap');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+wrap.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x14161c);
+scene.fog = new THREE.Fog(0x14161c, 80, 160);
+
+const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 400);
+const target = new THREE.Vector3(0, 10, 0);
+
+scene.add(new THREE.HemisphereLight(0xbcd0ff, 0x20242e, 0.9));
+const key = new THREE.DirectionalLight(0xffffff, 0.9);
+key.position.set(-18, 40, 28);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+Object.assign(key.shadow.camera, { left: -35, right: 35, top: 35, bottom: -35, near: 1, far: 120 });
+key.shadow.bias = -0.0004;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x7aa2ff, 0.5);
+rim.position.set(25, 15, -25);
+scene.add(rim);
+
+const steel = new THREE.MeshPhongMaterial({ color: 0xdde4ee, specular: 0xffffff, shininess: 140 });
+const frameMat = new THREE.MeshPhongMaterial({ color: 0xaab4c3, specular: 0xffffff, shininess: 80 });
+const woodMat = new THREE.MeshPhongMaterial({ color: 0x2c313d, specular: 0x555b69, shininess: 40 });
+const stringMat = new THREE.LineBasicMaterial({ color: 0xcfd6e2 });
+
+const FX = 20.5, RAIL_Y = toY(startY), BASE_TOP = toY(312), DZ = 3.2;
+
+const base = new THREE.Mesh(new THREE.BoxGeometry(FX * 2 + 6, 1.4, DZ * 2 + 6), woodMat);
+base.position.set(0, BASE_TOP - 0.7, 0);
+base.receiveShadow = true; base.castShadow = true;
+scene.add(base);
+
+function bar(a, b, r) {
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b);
+  const len = A.distanceTo(B);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 20), frameMat);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize());
+  m.castShadow = true;
+  scene.add(m);
+}
+for (const sx of [-1, 1]) {
+  for (const sz of [-1, 1]) {
+    bar([sx * FX, BASE_TOP, sz * DZ], [sx * FX, RAIL_Y, sz * DZ], 0.28);
+    const j = new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 20), frameMat);
+    j.position.set(sx * FX, RAIL_Y, sz * DZ); j.castShadow = true; scene.add(j);
+  }
+  bar([sx * FX, RAIL_Y, -DZ], [sx * FX, RAIL_Y, DZ], 0.22);
+}
+for (const sz of [-1, 1]) bar([-FX, RAIL_Y, sz * DZ], [FX, RAIL_Y, sz * DZ], 0.22);
+
+const meshes = balls.map(() => {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(radius * S, 64, 48), steel);
+  m.castShadow = true; scene.add(m); return m;
+});
+const strings = balls.map(b => [-1, 1].map(sz => {
+  const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const l = new THREE.Line(g, stringMat);
+  l.userData = { sz, ax: toX(b.anchorX) };
+  scene.add(l); return l;
+}));
+
+// ---------- Dragging ----------
+const raycaster = new THREE.Raycaster();
+const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const ptr = new THREE.Vector2(), hit = new THREE.Vector3();
+let drag = null;
+
+function setPointer(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(ptr, camera);
+}
+function planePoint() {
+  return raycaster.ray.intersectPlane(plane, hit) ? { x: hit.x / S + 300, y: 300 - hit.y / S } : null;
+}
+renderer.domElement.addEventListener('pointerdown', e => {
+  setPointer(e);
+  const h = raycaster.intersectObjects(meshes)[0];
+  if (!h) return;
+  const i = meshes.indexOf(h.object), p = planePoint();
+  if (!p) return;
+  drag = Constraint.create({ pointA: p, bodyB: balls[i], pointB: { x: 0, y: 0 }, stiffness: 0.08, damping: 0.1, length: 0 });
+  Composite.add(world, drag);
+  renderer.domElement.setPointerCapture(e.pointerId);
+  renderer.domElement.style.cursor = 'grabbing';
+});
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!drag) return;
+  setPointer(e);
+  const p = planePoint();
+  if (p) drag.pointA = p;
+});
+function release() {
+  if (drag) { Composite.remove(world, drag); drag = null; }
+  renderer.domElement.style.cursor = 'grab';
+}
+renderer.domElement.addEventListener('pointerup', release);
+renderer.domElement.addEventListener('pointercancel', release);
+
+// ---------- Layout & loop ----------
+function resize() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  const dist = w / h < 1 ? 105 : 78;
+  camera.position.set(dist * 0.22, 15, dist);
+  camera.lookAt(target);
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+
+function frame() {
+  Engine.update(engine, 1000 / 120);
+  Engine.update(engine, 1000 / 120);
+
+  balls.forEach((b, i) => {
+    const bx = toX(b.position.x), by = toY(b.position.y);
+    meshes[i].position.set(bx, by, 0);
+    strings[i].forEach(l => {
+      const pos = l.geometry.attributes.position;
+      pos.setXYZ(0, l.userData.ax, RAIL_Y, l.userData.sz * DZ);
+      pos.setXYZ(1, bx, by + radius * S * 0.9, 0);
+      pos.needsUpdate = true;
+    });
+  });
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+frame();
+  </script>
+</body>
+</html>
